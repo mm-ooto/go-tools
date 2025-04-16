@@ -1,0 +1,400 @@
+package gorsa
+
+import (
+	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"golang.org/x/crypto/pkcs12"
+	"io"
+	"math/big"
+	"os"
+)
+
+var (
+	ErrDataToLarge     = errors.New("message too long for RSA public key size")
+	ErrDataLen         = errors.New("data length error")
+	ErrDataBroken      = errors.New("data broken, first byte is not zero")
+	ErrKeyPairDisMatch = errors.New("data is not encrypted by the private key")
+	ErrDecryption      = errors.New("decryption error")
+	ErrPublicKey       = errors.New("get public key error")
+	ErrPrivateKey      = errors.New("get private key error")
+	ErrDecrypt         = errors.New("decrypt fail")
+)
+
+// 设置公钥
+func getPubKey(publicKey []byte) (*rsa.PublicKey, error) {
+	// decode public key
+	block, _ := pem.Decode(publicKey)
+	if block == nil {
+		return nil, ErrPublicKey
+	}
+	// x509 parse public key
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	return pub.(*rsa.PublicKey), err
+}
+
+// getPubKeyFromFile 从文件中获取公钥
+//
+//	priKeyFile：公钥文件
+func getPubKeyFromFile(priKeyFile string) (*rsa.PublicKey, error) {
+	pubKeyBytes, err := os.ReadFile(priKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("公钥文件读取失败 err:%s", err.Error())
+	}
+	return getPubKey(pubKeyBytes)
+}
+
+// 设置私钥
+func getPriKey(privateKey []byte) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode(privateKey)
+	if block == nil {
+		return nil, ErrPrivateKey
+	}
+	pri, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err == nil {
+		return pri, nil
+	}
+	pri2, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	return pri2.(*rsa.PrivateKey), nil
+}
+
+// getPriKeyFromFile 从文件中获取私钥
+//
+//	priKeyFile：私钥文件路径
+func getPriKeyFromFile(priKeyFile string) (*rsa.PrivateKey, error) {
+	priKeyBytes, err := os.ReadFile(priKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("私钥文件读取失败 err:%s", err.Error())
+	}
+	return getPriKey(priKeyBytes)
+}
+
+// getPriKeyFromPfxFile 从pfx证书文件中解析出私钥
+//
+//	privateKeyFile：私钥文件路径；privatePassword：密钥
+func getPriKeyFromPfxFile(privateKeyFile, privatePassword string) (*rsa.PrivateKey, error) {
+	bytes, err := os.ReadFile(privateKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("私钥证书读取失败 err:%s", err.Error())
+	}
+
+	priKey, _, err := pkcs12.Decode(bytes, privatePassword)
+	if err != nil {
+		return nil, ErrDecrypt
+	}
+
+	privateKey := priKey.(*rsa.PrivateKey)
+
+	return privateKey, nil
+}
+
+// 公钥加密或解密byte
+func pubKeyByte(pubKey *rsa.PublicKey, in []byte, isEncrytp bool) ([]byte, error) {
+	k := (pubKey.N.BitLen() + 7) / 8
+	if isEncrytp {
+		k = k - 11
+	}
+	if len(in) <= k {
+		if isEncrytp {
+			return rsa.EncryptPKCS1v15(rand.Reader, pubKey, in)
+		} else {
+			return pubKeyDecrypt(pubKey, in)
+		}
+	} else {
+		iv := make([]byte, k)
+		out := bytes.NewBuffer(iv)
+		if err := pubKeyIO(pubKey, bytes.NewReader(in), out, isEncrytp); err != nil {
+			return nil, err
+		}
+		return io.ReadAll(out)
+	}
+}
+
+// 私钥加密或解密byte
+func priKeyByte(priKey *rsa.PrivateKey, in []byte, isEncrypt bool) ([]byte, error) {
+	k := (priKey.N.BitLen() + 7) / 8
+	if isEncrypt {
+		k = k - 11
+	}
+	if len(in) <= k {
+		if isEncrypt {
+			return priKeyEncrypt(rand.Reader, priKey, in)
+		} else {
+			return rsa.DecryptPKCS1v15(rand.Reader, priKey, in)
+		}
+	} else {
+		iv := make([]byte, k)
+		out := bytes.NewBuffer(iv)
+		if err := priKeyIO(priKey, bytes.NewReader(in), out, isEncrypt); err != nil {
+			return nil, err
+		}
+		return io.ReadAll(out)
+	}
+}
+
+// 公钥加密或解密Reader
+func pubKeyIO(pubKey *rsa.PublicKey, in io.Reader, out io.Writer, isEncrypt bool) (err error) {
+	k := (pubKey.N.BitLen() + 7) / 8
+	if isEncrypt {
+		k = k - 11
+	}
+	buf := make([]byte, k)
+	var b []byte
+	size := 0
+	for {
+		size, err = in.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		if size < k {
+			b = buf[:size]
+		} else {
+			b = buf
+		}
+		if isEncrypt {
+			b, err = rsa.EncryptPKCS1v15(rand.Reader, pubKey, b)
+		} else {
+			b, err = pubKeyDecrypt(pubKey, b)
+		}
+		if err != nil {
+			return err
+		}
+		if _, err = out.Write(b); err != nil {
+			return err
+		}
+	}
+	return
+}
+
+// 私钥加密或解密Reader
+func priKeyIO(priKey *rsa.PrivateKey, r io.Reader, w io.Writer, isEncrypt bool) (err error) {
+	k := (priKey.N.BitLen() + 7) / 8
+	if isEncrypt {
+		k = k - 11
+	}
+	buf := make([]byte, k)
+	var b []byte
+	size := 0
+	for {
+		size, err = r.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		if size < k {
+			b = buf[:size]
+		} else {
+			b = buf
+		}
+		if isEncrypt {
+			b, err = priKeyEncrypt(rand.Reader, priKey, b)
+		} else {
+			b, err = rsa.DecryptPKCS1v15(rand.Reader, priKey, b)
+		}
+		if err != nil {
+			return err
+		}
+		if _, err = w.Write(b); err != nil {
+			return err
+		}
+	}
+	return
+}
+
+// 公钥解密
+func pubKeyDecrypt(pubKey *rsa.PublicKey, data []byte) ([]byte, error) {
+	k := (pubKey.N.BitLen() + 7) / 8
+	if k != len(data) {
+		return nil, ErrDataLen
+	}
+	m := new(big.Int).SetBytes(data)
+	if m.Cmp(pubKey.N) > 0 {
+		return nil, ErrDataToLarge
+	}
+	m.Exp(m, big.NewInt(int64(pubKey.E)), pubKey.N)
+	d := leftPad(m.Bytes(), k)
+	if d[0] != 0 {
+		return nil, ErrDataBroken
+	}
+	if d[1] != 0 && d[1] != 1 {
+		return nil, ErrKeyPairDisMatch
+	}
+	var i = 2
+	for ; i < len(d); i++ {
+		if d[i] == 0 {
+			break
+		}
+	}
+	i++
+	if i == len(d) {
+		return nil, nil
+	}
+	return d[i:], nil
+}
+
+// 私钥加密
+func priKeyEncrypt(rand io.Reader, priKey *rsa.PrivateKey, hashed []byte) ([]byte, error) {
+	tLen := len(hashed)
+	k := (priKey.N.BitLen() + 7) / 8
+	if k < tLen+11 {
+		return nil, ErrDataLen
+	}
+	em := make([]byte, k)
+	em[1] = 1
+	for i := 2; i < k-tLen-1; i++ {
+		em[i] = 0xff
+	}
+	copy(em[k-tLen:k], hashed)
+	m := new(big.Int).SetBytes(em)
+	c, err := decrypt(rand, priKey, m)
+	if err != nil {
+		return nil, err
+	}
+	copyWithLeftPad(em, c.Bytes())
+	return em, nil
+}
+
+// 从crypto/rsa复制
+var bigZero = big.NewInt(0)
+var bigOne = big.NewInt(1)
+
+// 从crypto/rsa复制
+func encrypt(c *big.Int, pub *rsa.PublicKey, m *big.Int) *big.Int {
+	e := big.NewInt(int64(pub.E))
+	c.Exp(m, e, pub.N)
+	return c
+}
+
+// 从crypto/rsa复制
+func decrypt(random io.Reader, priKey *rsa.PrivateKey, c *big.Int) (m *big.Int, err error) {
+	if c.Cmp(priKey.N) > 0 {
+		err = ErrDecryption
+		return
+	}
+	var ir *big.Int
+	if random != nil {
+		var r *big.Int
+
+		for {
+			r, err = rand.Int(random, priKey.N)
+			if err != nil {
+				return
+			}
+			if r.Cmp(bigZero) == 0 {
+				r = bigOne
+			}
+			var ok bool
+			ir, ok = modInverse(r, priKey.N)
+			if ok {
+				break
+			}
+		}
+		bigE := big.NewInt(int64(priKey.E))
+		rpowe := new(big.Int).Exp(r, bigE, priKey.N)
+		cCopy := new(big.Int).Set(c)
+		cCopy.Mul(cCopy, rpowe)
+		cCopy.Mod(cCopy, priKey.N)
+		c = cCopy
+	}
+	if priKey.Precomputed.Dp == nil {
+		m = new(big.Int).Exp(c, priKey.D, priKey.N)
+	} else {
+		m = new(big.Int).Exp(c, priKey.Precomputed.Dp, priKey.Primes[0])
+		m2 := new(big.Int).Exp(c, priKey.Precomputed.Dq, priKey.Primes[1])
+		m.Sub(m, m2)
+		if m.Sign() < 0 {
+			m.Add(m, priKey.Primes[0])
+		}
+		m.Mul(m, priKey.Precomputed.Qinv)
+		m.Mod(m, priKey.Primes[0])
+		m.Mul(m, priKey.Primes[1])
+		m.Add(m, m2)
+
+		for i, values := range priKey.Precomputed.CRTValues {
+			prime := priKey.Primes[2+i]
+			m2.Exp(c, values.Exp, prime)
+			m2.Sub(m2, m)
+			m2.Mul(m2, values.Coeff)
+			m2.Mod(m2, prime)
+			if m2.Sign() < 0 {
+				m2.Add(m2, prime)
+			}
+			m2.Mul(m2, values.R)
+			m.Add(m, m2)
+		}
+	}
+	if ir != nil {
+		m.Mul(m, ir)
+		m.Mod(m, priKey.N)
+	}
+
+	return
+}
+
+// 从crypto/rsa复制
+func copyWithLeftPad(dest, src []byte) {
+	numPaddingBytes := len(dest) - len(src)
+	for i := 0; i < numPaddingBytes; i++ {
+		dest[i] = 0
+	}
+	copy(dest[numPaddingBytes:], src)
+}
+
+// 从crypto/rsa复制
+func nonZeroRandomBytes(s []byte, rand io.Reader) (err error) {
+	_, err = io.ReadFull(rand, s)
+	if err != nil {
+		return
+	}
+	for i := 0; i < len(s); i++ {
+		for s[i] == 0 {
+			_, err = io.ReadFull(rand, s[i:i+1])
+			if err != nil {
+				return
+			}
+			s[i] ^= 0x42
+		}
+	}
+	return
+}
+
+// 从crypto/rsa复制
+func leftPad(input []byte, size int) (out []byte) {
+	n := len(input)
+	if n > size {
+		n = size
+	}
+	out = make([]byte, size)
+	copy(out[len(out)-n:], input)
+	return
+}
+
+// 从crypto/rsa复制
+func modInverse(a, n *big.Int) (ia *big.Int, ok bool) {
+	g := new(big.Int)
+	x := new(big.Int)
+	y := new(big.Int)
+	g.GCD(x, y, a, n)
+	if g.Cmp(bigOne) != 0 {
+		return
+	}
+	if x.Cmp(bigOne) < 0 {
+		x.Add(x, n)
+	}
+	return x, true
+}

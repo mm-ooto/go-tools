@@ -1,0 +1,42 @@
+# ------------------------------------------
+生成RSA公私钥证书过程：
+
+1.openssl genrsa -out ssl-kestrel.key 2048
+
+2.openssl req -new -x509 -key ssl-kestrel.key -days 3650 -out ssl-kestrel.cer
+
+3.openssl pkcs12 -export -name test-alias -in ssl-kestrel.cer -inkey ssl-kestrel.key -out private.pfx
+
+4.openssl pkcs12 -in private.pfx -passin pass:pass123 -nodes -out public.pem
+
+5.openssl x509 -in public.pem -outform der -out public.cer
+
+# -----------------解释：-------------------------
+
+# 1.使用OpenSSL生成一个2048位的私钥，并将生成的私钥保存到文件ssl-kestrel.key中
+# genrsa：是OpenSSL的一个命令，用于生成RSA密钥；-out：是一个选项，用于指定输出文件的名称；ssl-kestrel.key：是输出文件的名称
+# 2048：是密钥的位数，2048是一个安全范围内的值，表示密钥将有2048个二进制位（即1024字节）
+openssl genrsa -out ssl-kestrel.key 2048
+
+# 2.使用OpenSSL生成一个自签名的SSL证书
+# req：表示OpenSSL的请求处理模块，用于处理证书请求；-new：表示生成一个新的证书请求；-x509：表示生成一个自签名的X.509证书
+# -key ssl-kestrel.key：指定用于生成证书的私钥文件；-days 3650：指定证书的有效期，这里是10年；-out ssl-kestrel.crt：指定生成的证书文件的输出路径和文件名
+openssl req -new -x509 -key ssl-kestrel.key -days 3650 -out ssl-kestrel.cer
+
+# 3.使用OpenSSL将SSL证书转换为PKCS12格式。
+# -export 表示要创建一个PKCS12文件；-name test-alias 设置别名，在Java等环境中可能会用到；-in ssl-kestrel.cer 指定输入的证书文件
+# -inkey ssl-kestrel.key 指定输入的私钥文件；-out test.pfx 指定输出的PKCS12文件
+openssl pkcs12 -export -name test-alias -in ssl-kestrel.cer -inkey ssl-kestrel.key -out private.pfx
+
+
+# 4.将PFX证书转换为PEM格式
+# openssl pkcs12 -in private.pfx：使用OpenSSL的PKCS#12命令处理名为private.pfx的文件；-passin pass:pass123：指定用于解锁PKCS#12文件的密码是pass123
+# -nodes：表示在转换过程中不提取私钥；out public.pem：指定输出的PEM格式文件名为test.pem
+openssl pkcs12 -in private.pfx -passin pass:pass123 -nodes -out public.pem
+
+# 5.从PEM格式的PFX证书中提取证书部分（不包含私钥）
+# openssl x509：这是OpenSSL的一个命令，用于处理X.509证书；-in public.pem：指定要转换的输入文件名为public.pem；
+# -outform der：指定输出格式为DER；-out public.cer：指定转换后的输出文件名为test.cer
+openssl x509 -in public.pem -outform der -out public.cer
+
+
