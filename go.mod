@@ -7,13 +7,15 @@ require (
 	git.900sui.cn/kc/kcgin v1.0.9
 	github.com/ZZMarquis/gm v1.3.2
 	github.com/dutchcoders/goftp v0.0.0-20170301105846-ed59a591ce14
-	github.com/golang/protobuf v1.3.2
+	github.com/go-errors/errors v1.0.1
+	github.com/go-redis/redis v6.15.9+incompatible
+	github.com/golang/protobuf v1.5.4
 	github.com/pkg/sftp v1.13.9
 	github.com/shopspring/decimal v1.4.0
 	github.com/unidoc/unipdf/v3 v3.68.0
 	golang.org/x/crypto v0.37.0
 	golang.org/x/net v0.35.0
-	google.golang.org/grpc v1.24.0
+	google.golang.org/grpc v1.71.1
 )
 
 require (
@@ -44,6 +46,7 @@ require (
 	golang.org/x/text v0.24.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto v0.0.0-20191028173616-919d9bdd9fe6 // indirect
+	google.golang.org/protobuf v1.36.4 // indirect
 	gopkg.in/go-playground/validator.v9 v9.29.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
