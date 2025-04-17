@@ -6,6 +6,7 @@ require (
 	git.900sui.cn/kc/base v1.0.40
 	git.900sui.cn/kc/kcgin v1.0.9
 	github.com/ZZMarquis/gm v1.3.2
+	github.com/aws/aws-sdk-go v1.16.23
 	github.com/dutchcoders/goftp v0.0.0-20170301105846-ed59a591ce14
 	github.com/go-errors/errors v1.0.1
 	github.com/go-redis/redis v6.15.9+incompatible
@@ -26,6 +27,7 @@ require (
 	github.com/gin-gonic/gin v1.5.0 // indirect
 	github.com/go-playground/locales v0.12.1 // indirect
 	github.com/go-playground/universal-translator v0.16.0 // indirect
+	github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af // indirect
 	github.com/json-iterator/go v1.1.7 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/leodido/go-urn v1.1.0 // indirect
